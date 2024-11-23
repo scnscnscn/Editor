@@ -1,0 +1,10 @@
+[package]
+name = "hecto"
+version = "0.2.0"
+authors = ["Philipp Flenker <hello@philippflenker.com>"]
+edition = "2021"
+
+[dependencies]
+crossterm = "0.22.1"
+unicode-segmentation = "1"
+console = "0.15.8"
