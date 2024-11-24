@@ -7,6 +7,7 @@ use crossterm::{
     style::SetForegroundColor,
     style::Color
 };
+use unicode_width::UnicodeWidthChar;
 
 #[derive(Default)]
 pub struct Row {
@@ -461,6 +462,41 @@ impl Row {
         }
         self.is_highlighted = true;
         false
+    }
+    pub fn get_char_width(&self, c: char) -> usize {
+        if c.is_ascii() {
+            1
+        } else {
+            2  // CJK characters
+        }
+    }
+    pub fn get_char(&self, at: usize) -> Option<char> {
+        self.string.chars().nth(at)
+    }
+    pub fn get_width_to(&self, up_to: usize) -> usize {
+        self.string[..]
+            .graphemes(true)
+            .take(up_to)
+            .map(|g| {
+                if let Some(c) = g.chars().next() {
+                    self.get_char_width(c)
+                } else {
+                    1
+                }
+            })
+            .sum()
+    }
+    pub fn get_char_index(&self, visual_pos: usize) -> usize {
+        let mut current_width = 0;
+        for (i, grapheme) in self.string[..].graphemes(true).enumerate() {
+            if let Some(c) = grapheme.chars().next() {
+                current_width += self.get_char_width(c);
+                if current_width > visual_pos {
+                    return i;
+                }
+            }
+        }
+        self.len()
     }
 }
 

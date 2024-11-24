@@ -155,7 +155,11 @@ impl Editor {
                 self.status_message = StatusMessage::from("Save aborted.".to_string());
                 return;
             }
-            self.document.file_name = new_name;
+            let mut file_name = new_name.unwrap();
+            if !file_name.ends_with(".txt") {
+                file_name.push_str(".txt");
+            }
+            self.document.file_name = Some(file_name);
         }
 
         if self.document.save().is_ok() {
@@ -317,32 +321,36 @@ impl Editor {
                 }
                 (KeyModifiers::CONTROL, KeyCode::Char('s')) => self.save(),
                 (KeyModifiers::CONTROL, KeyCode::Char('f')) => self.search(),
-                (KeyModifiers::CONTROL, KeyCode::Char('l')) => {
-                    self.document.insert(&self.cursor_position, 'l');
-                    self.move_cursor(KeyCode::Right);
-                },
-                (KeyModifiers::CONTROL, KeyCode::Char('r')) => {
-                    self.document.insert(&self.cursor_position, 'r');
-                    self.move_cursor(KeyCode::Right);
-                },
-                (KeyModifiers::CONTROL, KeyCode::Char('*')) => {
-                    self.document.insert(&self.cursor_position, '*');
-                    self.move_cursor(KeyCode::Right);
-                },
                 (_, KeyCode::Enter) => {
                     self.document.insert(&self.cursor_position, '\n');
                     self.move_cursor(KeyCode::Right);
                 },
-                (_, KeyCode::Char(mut c)) => {
+                (_, KeyCode::Char(c)) => {
                     self.document.insert(&self.cursor_position, c);
                     if self.cursor_position.x >= MAX_LINE_LEN {
                         self.document.insert(&self.cursor_position, '\n');
                         self.cursor_position.x = 0;
                         self.cursor_position.y += 1;
+                    } else {
+                        let width = if let Some(row) = self.document.row(self.cursor_position.y) {
+                            row.get_char_width(c)
+                        } else {
+                            1
+                        };
+                        self.cursor_position.x += width;
                     }
-                    self.move_cursor(KeyCode::Right);
                 }
-                (_, KeyCode::Delete) => self.document.delete(&self.cursor_position),
+                (_, KeyCode::Delete) => {
+                    if let Some(row) = self.document.row(self.cursor_position.y) {
+                        if self.cursor_position.x < row.len() {
+                            // 获取当前位置字符的UTF-8宽度
+                            if let Some(c) = row.get_char(self.cursor_position.x) {
+                                let char_width = row.get_char_width(c);
+                                self.document.delete(&self.cursor_position);
+                            }
+                        }
+                    }
+                },
                 (_, KeyCode::Backspace) => {
                     if self.cursor_position.x > 0 || self.cursor_position.y > 0 {
                     // self.move_cursor(KeyCode::Left);
@@ -407,10 +415,11 @@ impl Editor {
         let Position { mut y, mut x } = self.cursor_position;
         let height = self.document.len();
         let mut width = if let Some(row) = self.document.row(y) {
-            row.len()
+            row.get_width_to(row.len())
         } else {
             0
         };
+
         match key {
             KeyCode::Up => y = y.saturating_sub(1),
             
@@ -421,24 +430,35 @@ impl Editor {
                 }
             }
             KeyCode::Left => {
-                if x <= 0 {
-                    x = 0;
-                }
-                if x > 1 {
-                    x -= 1;
+                if x > 0 {
+                    if let Some(row) = self.document.row(y) {
+                        let char_index = row.get_char_index(x);
+                        if char_index > 0 {
+                            if let Some(c) = row.get_char(char_index - 1) {
+                                x -= row.get_char_width(c);
+                            }
+                        }
+                    }
                 } else if y > 0 {
                     y -= 1;
                     if let Some(row) = self.document.row(y) {
-                        x = row.len();
+                        x = row.get_width_to(row.len());
+                    } else {
+                        x = 0;
                     }
                 }
             }
             KeyCode::Right => {
-                
-                if x < self.document.row(y).map_or(0, |row| row.len()) {
-                    x = x.saturating_add(1);
-                } else if y < height {
-                    y = y.saturating_add(1);
+                if let Some(row) = self.document.row(y) {
+                    let char_index = row.get_char_index(x);
+                    if char_index < row.len() {
+                        if let Some(c) = row.get_char(char_index) {
+                            x += row.get_char_width(c);
+                        }
+                    } else if y < height {
+                        y += 1;
+                        x = 0;
+                    }
                 }
             }
             KeyCode::PageUp => {
@@ -465,7 +485,7 @@ impl Editor {
             _ => (),
         }
         width = if let Some(row) = self.document.row(y) {
-            row.len()
+            row.get_width_to(row.len())
         } else {
             0
         };
