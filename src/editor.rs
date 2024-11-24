@@ -353,15 +353,27 @@ impl Editor {
                 },
                 (_, KeyCode::Backspace) => {
                     if self.cursor_position.x > 0 || self.cursor_position.y > 0 {
-                    // self.move_cursor(KeyCode::Left);
-                    if self.cursor_position.x > 0 {
-                        self.cursor_position.x -= 1;
-                    } else {
-                        self.cursor_position.y -= 1;
-                        self.cursor_position.x = self.document.row(self.cursor_position.y).expect("REASON").len();
+                        if self.cursor_position.x > 0 {
+                            if let Some(row) = self.document.row(self.cursor_position.y) {
+                                let char_index = row.get_char_index(self.cursor_position.x);
+                                if char_index > 0 {
+                                    if let Some(c) = row.get_char(char_index - 1) {
+                                        self.cursor_position.x -= row.get_char_width(c);
+                                        self.document.delete(&Position {
+                                            x: char_index - 1,
+                                            y: self.cursor_position.y,
+                                        });
+                                    }
+                                }
+                            }
+                        } else if self.cursor_position.y > 0 {
+                            self.cursor_position.y -= 1;
+                            if let Some(row) = self.document.row(self.cursor_position.y) {
+                                self.cursor_position.x = row.get_width_to(row.len());
+                                self.document.delete(&self.cursor_position);
+                            }
+                        }
                     }
-                    self.document.delete(&self.cursor_position);
-                }
                 },
                 (_, KeyCode::Up)
                 | (_, KeyCode::Down)
@@ -425,7 +437,6 @@ impl Editor {
             
             KeyCode::Down => {
                 if y < height {
-                    self.document.insert(&self.cursor_position, '\n');
                     y = y.saturating_add(1);
                 }
             }
