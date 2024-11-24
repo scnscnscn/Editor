@@ -9,7 +9,7 @@ use crossterm::{
 };
 use unicode_width::UnicodeWidthChar;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Row {
     string: String,
     highlighting: Vec<highlighting::Type>,

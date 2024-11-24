@@ -4,13 +4,23 @@ use crate::Row;
 use crate::SearchDirection;
 use std::fs;
 use std::io::{Error, Write};
+use std::time::{Duration, Instant};
 
 #[derive(Default)]
+pub struct EditorState {
+    rows: Vec<Row>,
+    cursor_position: Position,
+}
+
 pub struct Document {
     rows: Vec<Row>,
     pub file_name: Option<String>,
     dirty: bool,
     file_type: FileType,
+    history: Vec<(Vec<Row>, Position)>,
+    history_index: usize,
+    last_edit_time: Option<Instant>,
+    batch_duration: Duration,
 }
 
 impl Document {
@@ -26,6 +36,10 @@ impl Document {
             file_name: Some(filename.to_string()),
             dirty: false,
             file_type,
+            history: vec![(Vec::new(), Position::default())],
+            history_index: 0,
+            last_edit_time: None,
+            batch_duration: Duration::from_millis(1000),
         })
     }
     pub fn file_type(&self) -> String {
@@ -55,6 +69,7 @@ impl Document {
         self.rows.insert(at.y + 1, new_row);
     }
     pub fn insert(&mut self, at: &Position, c: char) {
+        self.save_state(&Position::default());
         if at.y > self.rows.len() {
             return;
         }
@@ -80,10 +95,11 @@ impl Document {
         }
     }
     #[allow(clippy::integer_arithmetic, clippy::indexing_slicing)]
-    pub fn delete(&mut self, at: &Position) {
+    pub fn delete(&mut self, at: &Position) -> bool {
+        self.save_state(&Position::default());
         let len = self.rows.len();
         if at.y >= len {
-            return;
+            return false;
         }
         self.dirty = true;
         if at.x == self.rows[at.y].len() && at.y + 1 < len {
@@ -95,6 +111,7 @@ impl Document {
             row.delete(at.x);
         }
         self.unhighlight_rows(at.y);
+        true
     }
     pub fn save(&mut self) -> Result<(), Error> {
         if let Some(file_name) = &self.file_name {
@@ -165,6 +182,62 @@ impl Document {
                 word,
                 start_with_comment,
             );
+        }
+    }
+    fn should_create_new_state(&mut self) -> bool {
+        if let Some(last_time) = self.last_edit_time {
+            if last_time.elapsed() > self.batch_duration {
+                self.last_edit_time = Some(Instant::now());
+                true
+            } else {
+                false
+            }
+        } else {
+            self.last_edit_time = Some(Instant::now());
+            true
+        }
+    }
+    fn save_state(&mut self, cursor_position: &Position) {
+        if self.should_create_new_state() {
+            self.history.truncate(self.history_index + 1);
+            self.history.push((self.rows.clone(), cursor_position.clone()));
+            self.history_index = self.history.len() - 1;
+        } else {
+            self.history[self.history_index] = (self.rows.clone(), cursor_position.clone());
+        }
+    }
+    pub fn undo(&mut self) -> Option<Position> {
+        if self.history_index > 0 {
+            self.history_index -= 1;
+            let (rows, position) = &self.history[self.history_index];
+            self.rows = rows.clone();
+            self.last_edit_time = None;
+            Some(position.clone())
+        } else {
+            None
+        }
+    }
+    pub fn redo(&mut self) -> Option<Position> {
+        if self.history_index + 1 < self.history.len() {
+            self.history_index += 1;
+            let (rows, position) = &self.history[self.history_index];
+            self.rows = rows.clone();
+            self.last_edit_time = None;
+            Some(position.clone())
+        } else {
+            None
+        }
+    }
+    pub fn default() -> Self {
+        Self {
+            rows: Vec::new(),
+            file_name: None,
+            dirty: false,
+            file_type: FileType::default(),
+            history: vec![(Vec::new(), Position::default())],
+            history_index: 0,
+            last_edit_time: None,
+            batch_duration: Duration::from_millis(1000),
         }
     }
 }
